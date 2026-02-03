@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>华邻易市</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        body {
+            background-color: var(--tg-theme-bg-color, #f0f2f5);
+            color: var(--tg-theme-text-color, #222);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0; padding: 15px;
+        }
+        .header { margin-bottom: 20px; }
+        .card {
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 16px;
+            padding: 15px;
+            margin-bottom: 15px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+        }
+        .price { color: #f44336; font-weight: bold; font-size: 1.2em; }
+        .tag { background: #0088cc; color: white; padding: 2px 8px; border-radius: 5px; font-size: 0.8em; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h2>✨ 华邻今日好物</h2>
+    </div>
+
+    <div class="card">
+        <div class="tag">95新</div>
+        <h3>iPhone X (64GB 深空灰)</h3>
+        <p class="price">$180</p>
+        <p>地点：伦敦面交</p>
+    </div>
+
+    <div class="card">
+        <div class="tag">全新</div>
+        <h3>索尼 WH-1000XM5 耳机</h3>
+        <p class="price">$260</p>
+        <p>地点：伯明翰邮寄</p>
+    </div>
+
+    <button onclick="Telegram.WebApp.close()" style="width: 100%; padding: 12px; border: none; border-radius: 10px; background: #0088cc; color: white;">返回聊天</button>
+
+    <script>
+        // 初始化 Telegram WebApp
+        const tg = window.Telegram.WebApp;
+        tg.expand(); // 自动铺满全屏
+    </script>
+</body>
+</html>
