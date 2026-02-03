@@ -65,7 +65,27 @@
             document.querySelector('.card .price').innerText = '$' + itemPrice;
             document.querySelector('.header h2').innerText = "✨ 你的拟发布好物";
         }
+        // 使用 Supabase 提供的 JS SDK (在 HTML 头部引入)
+        async function fetchItems() {
+            const { data, error } = await supabase
+                .from('items')
+                .select('*')
+                .order('created_at', { ascending: false });
+        
+            if (data) {
+                // 清空现有的静态卡片，循环渲染数据库中的真实商品
+                const container = document.getElementById('market-container');
+                container.innerHTML = data.map(item => `
+                    <div class="card">
+                        <h3>${item.name}</h3>
+                        <p class="price">$${item.price}</p>
+                        <p>${item.description}</p>
+                    </div>
+                `).join('');
+            }
+        }
     </script>
 </body>
 
 </html>
+
