@@ -34,11 +34,12 @@
         // --- 配置你的 Supabase ---
         const SUPABASE_URL = 'umqzuvmjtceikjhmrell';
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtcXp1dm1qdGNlaWtqaG1yZWxsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAxMzk5OTMsImV4cCI6MjA4NTcxNTk5M30.Equf9LWnHwpsFnQuIeFwx5-dxYRl1LSU_q3_57mFL7A';
-        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        
+        const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         async function loadMarket() {
             // 从数据库拉取最新的 20 个商品
-            const { data, error } = await supabase
+            const { data, error } = await _supabase
                 .from('items')
                 .select('*')
                 .order('created_at', { ascending: false })
