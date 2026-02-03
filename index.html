@@ -50,8 +50,22 @@
 
     <script>
         // 初始化 Telegram WebApp
+       // 在原有 <script> 标签内替换或增加以下内容
         const tg = window.Telegram.WebApp;
-        tg.expand(); // 自动铺满全屏
+        tg.expand();
+        
+        // 从 URL 获取 AI 传过来的参数
+        const urlParams = new URLSearchParams(window.location.search);
+        const itemName = urlParams.get('item') || '等待上传中...';
+        const itemPrice = urlParams.get('price') || '---';
+        
+        // 如果有参数，就把第一个卡片的内容改掉
+        if (urlParams.has('item')) {
+            document.querySelector('.card h3').innerText = itemName;
+            document.querySelector('.card .price').innerText = '$' + itemPrice;
+            document.querySelector('.header h2').innerText = "✨ 你的拟发布好物";
+        }
     </script>
 </body>
+
 </html>
