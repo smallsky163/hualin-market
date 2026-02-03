@@ -3,89 +3,67 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>华邻易市</title>
+    <title>华邻易市 - 实时集市</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
-        body {
-            background-color: var(--tg-theme-bg-color, #f0f2f5);
-            color: var(--tg-theme-text-color, #222);
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            margin: 0; padding: 15px;
-        }
-        .header { margin-bottom: 20px; }
+        body { background: #f0f2f5; font-family: sans-serif; padding: 15px; }
         .card {
-            background: rgba(255, 255, 255, 0.6);
-            backdrop-filter: blur(15px);
-            -webkit-backdrop-filter: blur(15px);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
             padding: 15px;
             margin-bottom: 15px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+            border: 1px solid rgba(255,255,255,0.3);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
         }
         .price { color: #f44336; font-weight: bold; font-size: 1.2em; }
-        .tag { background: #0088cc; color: white; padding: 2px 8px; border-radius: 5px; font-size: 0.8em; }
+        .loading { text-align: center; color: #888; margin-top: 50px; }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h2>✨ 华邻今日好物</h2>
+    <h2>✨ 华邻实时集市</h2>
+    <div id="market-container">
+        <div class="loading">正在从云端搬运宝贝...</div>
     </div>
-
-    <div class="card">
-        <div class="tag">95新</div>
-        <h3>iPhone X (64GB 深空灰)</h3>
-        <p class="price">$180</p>
-        <p>地点：伦敦面交</p>
-    </div>
-
-    <div class="card">
-        <div class="tag">全新</div>
-        <h3>索尼 WH-1000XM5 耳机</h3>
-        <p class="price">$260</p>
-        <p>地点：伯明翰邮寄</p>
-    </div>
-
-    <button onclick="Telegram.WebApp.close()" style="width: 100%; padding: 12px; border: none; border-radius: 10px; background: #0088cc; color: white;">返回聊天</button>
 
     <script>
-        // 初始化 Telegram WebApp
-       // 在原有 <script> 标签内替换或增加以下内容
         const tg = window.Telegram.WebApp;
         tg.expand();
-        
-        // 从 URL 获取 AI 传过来的参数
-        const urlParams = new URLSearchParams(window.location.search);
-        const itemName = urlParams.get('item') || '等待上传中...';
-        const itemPrice = urlParams.get('price') || '---';
-        
-        // 如果有参数，就把第一个卡片的内容改掉
-        if (urlParams.has('item')) {
-            document.querySelector('.card h3').innerText = itemName;
-            document.querySelector('.card .price').innerText = '$' + itemPrice;
-            document.querySelector('.header h2').innerText = "✨ 你的拟发布好物";
-        }
-        // 使用 Supabase 提供的 JS SDK (在 HTML 头部引入)
-        async function fetchItems() {
+
+        // --- 配置你的 Supabase ---
+        const SUPABASE_URL = 'umqzuvmjtceikjhmrell';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtcXp1dm1qdGNlaWtqaG1yZWxsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAxMzk5OTMsImV4cCI6MjA4NTcxNTk5M30.Equf9LWnHwpsFnQuIeFwx5-dxYRl1LSU_q3_57mFL7A';
+        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        async function loadMarket() {
+            // 从数据库拉取最新的 20 个商品
             const { data, error } = await supabase
                 .from('items')
                 .select('*')
-                .order('created_at', { ascending: false });
-        
-            if (data) {
-                // 清空现有的静态卡片，循环渲染数据库中的真实商品
-                const container = document.getElementById('market-container');
-                container.innerHTML = data.map(item => `
-                    <div class="card">
-                        <h3>${item.name}</h3>
-                        <p class="price">$${item.price}</p>
-                        <p>${item.description}</p>
-                    </div>
-                `).join('');
+                .order('created_at', { ascending: false })
+                .limit(20);
+
+            const container = document.getElementById('market-container');
+            
+            if (error) {
+                container.innerHTML = "加载失败，请检查网络";
+                return;
             }
+
+            // 动态生成瀑布流
+            container.innerHTML = data.map(item => `
+                <div class="card">
+                    <h3>${item.name}</h3>
+                    <p class="price">$${item.price}</p>
+                    <p style="font-size: 0.9em; color: #666;">${item.description || '暂无描述'}</p>
+                    <small style="color: #999;">上架时间: ${new Date(item.created_at).toLocaleString()}</small>
+                </div>
+            `).join('');
         }
+
+        // 页面加载即执行
+        loadMarket();
     </script>
 </body>
-
 </html>
-
