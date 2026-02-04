@@ -80,15 +80,27 @@
                     <p style="font-size: 0.9em; color: #666;">${item.description || '暂无描述'}</p>
                     <p style="font-size: 0.85em; color: #444;">📍 位置：${item.location_text || '未标注'}</p>
                     
-                    <a href="${contactLink}" class="contact-btn">
+                    // 修改后的按钮 HTML
+                    <button onclick="contactSeller('${item.telegram_id}')" class="contact-btn">
                         💬 联系邻居
-                    </a>
+                    </button>
                     
                     <div style="margin-top:10px;">
                         <small style="color: #999;">上架时间: ${new Date(item.created_at).toLocaleString()}</small>
                     </div>
                 </div>
             `}).join('');
+        }
+
+        function contactSeller(userId) {
+            const tg = window.Telegram.WebApp;
+            
+            // 方案 A：使用 Telegram 官方 SDK 打开私聊链接
+            // 这种方式在 WebApp 环境下是被允许的
+            const url = `https://t.me/contact?id=${userId}`; // 或者尝试 `https://t.me/user?id=${userId}`
+            
+            // 调用官方 API 打开外部链接
+            tg.openTelegramLink(`https://t.me/contact?id=${userId}`);
         }
 
         // 页面加载即执行
