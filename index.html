@@ -19,6 +19,21 @@
         }
         .price { color: #f44336; font-weight: bold; font-size: 1.2em; }
         .loading { text-align: center; color: #888; margin-top: 50px; }
+        .contact-btn {
+            display: inline-block;
+            background: #24A1DE; /* Telegram 蓝色 */
+            color: white;
+            text-decoration: none;
+            padding: 8px 15px;
+            border-radius: 10px;
+            font-size: 0.9em;
+            font-weight: bold;
+            margin-top: 10px;
+            transition: background 0.3s;
+        }
+        .contact-btn:hover {
+            background: #1d82b3;
+        }
     </style>
 </head>
 <body>
@@ -33,15 +48,16 @@
 
         // --- 配置你的 Supabase ---
         const SUPABASE_URL = 'https://umqzuvmjtceikjhmrell.supabase.co';
-        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtcXp1dm1qdGNlaWtqaG1yZWxsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAxMzk5OTMsImV4cCI6MjA4NTcxNTk5M30.Equf9LWnHwpsFnQuIeFwx5-dxYRl1LSU_q3_57mFL7A';
-        console.log("正在连接到:", SUPABASE_URL);
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVtcXp1dm1qdGNlaWtqaG1yZWxsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDEzOTk5MywiZXhwIjoyMDg1NzE1OTkzfQ.TXqaaeBj0eMN1TJiDwvygVIVGxaDkITv9MhBcr9v-MA';
+        
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         async function loadMarket() {
-            // 从数据库拉取最新的 20 个商品
+            // 🌟 修改点 1：增加过滤条件，只拉取 status 为 active 的商品
             const { data, error } = await _supabase
                 .from('items')
                 .select('*')
+                .eq('status', 'active') // 只显示已确认发布的
                 .order('created_at', { ascending: false })
                 .limit(20);
 
@@ -53,14 +69,26 @@
             }
 
             // 动态生成瀑布流
-            container.innerHTML = data.map(item => `
+            container.innerHTML = data.map(item => {
+                // 🌟 修改点 2：构造联系链接
+                const contactLink = `tg://user?id=${item.telegram_id}`;
+                
+                return `
                 <div class="card">
                     <h3>${item.name}</h3>
                     <p class="price">$${item.price}</p>
                     <p style="font-size: 0.9em; color: #666;">${item.description || '暂无描述'}</p>
-                    <small style="color: #999;">上架时间: ${new Date(item.created_at).toLocaleString()}</small>
+                    <p style="font-size: 0.85em; color: #444;">📍 位置：${item.location_text || '未标注'}</p>
+                    
+                    <a href="${contactLink}" class="contact-btn">
+                        💬 联系邻居
+                    </a>
+                    
+                    <div style="margin-top:10px;">
+                        <small style="color: #999;">上架时间: ${new Date(item.created_at).toLocaleString()}</small>
+                    </div>
                 </div>
-            `).join('');
+            `}).join('');
         }
 
         // 页面加载即执行
@@ -68,7 +96,3 @@
     </script>
 </body>
 </html>
-
-
-
-
