@@ -80,9 +80,8 @@
                     <p style="font-size: 0.9em; color: #666;">${item.description || '暂无描述'}</p>
                     <p style="font-size: 0.85em; color: #444;">📍 位置：${item.location_text || '未标注'}</p>
                     
-                    // 修改后的按钮 HTML
-                    <button onclick="contactSeller('${item.telegram_id}')" class="contact-btn">
-                        💬 联系邻居
+                    <button onclick="contactSeller('${item.username}', '${item.telegram_id}')" class="contact-btn">
+                        💬 联系邻居2
                     </button>
                     
                     <div style="margin-top:10px;">
@@ -92,15 +91,17 @@
             `}).join('');
         }
 
-        function contactSeller(userId) {
+        // 修改跳转函数
+        function contactSeller(username, userId) {
             const tg = window.Telegram.WebApp;
             
-            // 方案 A：使用 Telegram 官方 SDK 打开私聊链接
-            // 这种方式在 WebApp 环境下是被允许的
-            const url = `https://t.me/contact?id=${userId}`; // 或者尝试 `https://t.me/user?id=${userId}`
-            
-            // 调用官方 API 打开外部链接
-            tg.openTelegramLink(`https://t.me/contact?id=${userId}`);
+            // 优先使用用户名跳转，这是 Telegram WebApp 允许的 100% 成功路径
+            if (username && username !== 'null' && username !== 'undefined') {
+                tg.openTelegramLink(`https://t.me/${username}`);
+            } else {
+                // 如果数据库里确实没存用户名（旧数据），则尝试 ID 跳转或报错
+                tg.showAlert("该卖家未设置用户名，无法直接发起私聊。");
+            }
         }
 
         // 页面加载即执行
