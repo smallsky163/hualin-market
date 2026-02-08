@@ -14,8 +14,14 @@ import re
 from datetime import date
 import time
 import random
+#import Pillow
+from PIL import Image
+from concurrent.futures import ThreadPoolExecutor
 
 ADMIN_ID = 7894972034  # 🌟 必须修改：你可以发消息给 @userinfobot 获取你的 ID
+
+# 创建一个专门处理 AI 识图任务的线程池
+executor = ThreadPoolExecutor(max_workers=10)
 
 # 字符清洗
 def escape_markdown(text):
@@ -31,6 +37,7 @@ GOOGLE_API_KEY = os.getenv("GEMINI_API_KEY")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY") # 记得用 service_role key
+
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -89,30 +96,49 @@ def get_or_create_profile(user):
 # 处理图片上传
 def upload_to_supabase(file_id):
     try:
-        # 1. 获取 Telegram 文件下载路径
+        # 1. 获取文件路径
         file_info = bot.get_file(file_id)
         file_url = f"https://api.telegram.org/file/bot{TELEGRAM_TOKEN}/{file_info.file_path}"
         
-        # 2. 下载图片到内存
+        # 2. 下载原始图片
         response = requests.get(file_url)
-        if response.status_code == 200:
-            file_bits = response.content
-            # 生成类似：AgACAg..._1707316432_452.jpg 的文件名
-            unique_suffix = f"{int(time.time())}_{random.randint(100, 999)}"
-            file_name = f"{file_id}_{unique_suffix}.jpg"
+        if response.status_code != 200:
+            return None
             
-            # 3. 上传到 Supabase Storage
-            supabase.storage.from_("item-images").upload(
-                path=file_name,
-                file=file_bits,
-                file_options={"content-type": "image/jpeg"}
-            )
-            
-            # 4. 获取公开访问链接
-            return supabase.storage.from_("item-images").get_public_url(file_name)
+        # --- 🚀 核心优化：Pillow 内存压缩 ---
+        img_data = io.BytesIO(response.content)
+        img = Image.open(img_data)
+        
+        # 统一缩放：宽度限制在 1280px（兼顾 Gemini 识别率与体积）
+        if img.width > 1280:
+            ratio = 1280 / float(img.width)
+            new_height = int(float(img.height) * float(ratio))
+            img = img.resize((1280, new_height), Image.Resampling.LANCZOS)
+        
+        # 转换为 JPEG 字节流并压缩质量至 75%
+        output_buffer = io.BytesIO()
+        if img.mode in ("RGBA", "P"): 
+            img = img.convert("RGB")
+        img.save(output_buffer, format="JPEG", quality=75, optimize=True)
+        compressed_bits = output_buffer.getvalue()
+        # --- 压缩结束 ---
+
+        # 3. 生成唯一文件名
+        file_name = f"{file_id}_{int(time.time())}.jpg"
+        
+        # 4. 上传至 Supabase
+        supabase.storage.from_("item-images").upload(
+            path=file_name,
+            file=compressed_bits,
+            file_options={"content-type": "image/jpeg"}
+        )
+        
+        # 返回公网访问链接以及压缩后的字节流（用于后续给 AI，避免二次下载）
+        public_url = supabase.storage.from_("item-images").get_public_url(file_name)
+        return public_url, compressed_bits
     except Exception as e:
-        print(f"图片上传失败: {e}")
-        return None
+        print(f"I/O 链路异常: {e}")
+        return None, None
 
 # 处理广播逻辑 (增强版)
 def notify_subscribers(item_id):
@@ -420,6 +446,9 @@ def get_start_keyboard():
     markup.add(btn_help)
     markup.add(btn_me, btn_recharge)
     return markup
+
+
+
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_inline(call):
@@ -761,7 +790,6 @@ def callback_inline(call):
         print(f"Callback 运行异常: {e}")
         bot.answer_callback_query(call.id, "❌ 操作解析失败")
 
-    
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -1162,9 +1190,7 @@ def handle_view_item(message):
     markup = gen_draft_markup(item_id) 
     bot.send_message(message.chat.id, text, reply_markup=markup, parse_mode="Markdown")
 
-# 0.4.3.6 处理用户智能分析
-@bot.message_handler(func=lambda m: True, content_types=['text', 'photo'])
-def handle_message(message):
+def process_photo_task(message):
     # 1. 定义一个卖货专家的系统指令
     MARKETING_PROMPT = """
     你是一个精通小红书流量密码的海外二手交易专家。
@@ -1183,156 +1209,167 @@ def handle_message(message):
     DATA:iPhoneX|180
     """
     try:
-        if message.content_type == 'photo':
-            print("收到照片，正在分析...")
+        print("收到照片，正在分析...")
 
-            # --- 🌟 新增：判断是否为充值截图 ---
-            caption = message.caption or ""
-            if "充值" in caption or "支付" in caption:
-                # 尝试从附言中提取金额，或者让用户先点按钮记录状态（进阶做法）
-                # 这里我们简化处理：管理员手动决定或根据用户之前的选择
-                user_id = message.from_user.id
-                admin_markup = types.InlineKeyboardMarkup(row_width=1) # 设置为 1 方便点击
-                
-                # 构造包含金额和类型的 callback_data: refill_ok_用户ID_金额_套餐类型
-                admin_markup.add(
-                    types.InlineKeyboardButton("✅ 准予：1刀 (100能量)", callback_data=f"refill_ok_{user_id}_10_credits"),
-                    types.InlineKeyboardButton("✅ 准予：9.9刀 (月度会员)", callback_data=f"refill_ok_{user_id}_50_monthly"),
-                    types.InlineKeyboardButton("✅ 准予：80刀 (年度会员)", callback_data=f"refill_ok_{user_id}_99_yearly"),
-                    types.InlineKeyboardButton("❌ 拒绝申请", callback_data=f"refill_no_{user_id}")
-                )
-                
-                bot.forward_message(ADMIN_ID, message.chat.id, message.message_id)
-                bot.send_message(ADMIN_ID, f"🔔 **收到充值申请**\n来自用户：`{user_id}`\n用户名：@{message.from_user.username}", 
-                                reply_markup=admin_markup, parse_mode="Markdown")
-                bot.reply_to(message, "📩 支付凭证已提交，请耐心等待管理员审核。")
-                return
-            # --- 识图流程优化 ---
-            print(f"收到照片分析请求，附言: {caption}")
+        # --- 🌟 新增：判断是否为充值截图 ---
+        caption = message.caption or ""
+        if "充值" in caption or "支付" in caption:
+            # 尝试从附言中提取金额，或者让用户先点按钮记录状态（进阶做法）
+            # 这里我们简化处理：管理员手动决定或根据用户之前的选择
+            user_id = message.from_user.id
+            admin_markup = types.InlineKeyboardMarkup(row_width=1) # 设置为 1 方便点击
             
-            # 获取最高画质的照片
-            file_info = bot.get_file(message.photo[-1].file_id)
-            downloaded_file = bot.download_file(file_info.file_path)
+            # 构造包含金额和类型的 callback_data: refill_ok_用户ID_金额_套餐类型
+            admin_markup.add(
+                types.InlineKeyboardButton("✅ 准予：1刀 (100能量)", callback_data=f"refill_ok_{user_id}_10_credits"),
+                types.InlineKeyboardButton("✅ 准予：9.9刀 (月度会员)", callback_data=f"refill_ok_{user_id}_50_monthly"),
+                types.InlineKeyboardButton("✅ 准予：80刀 (年度会员)", callback_data=f"refill_ok_{user_id}_99_yearly"),
+                types.InlineKeyboardButton("❌ 拒绝申请", callback_data=f"refill_no_{user_id}")
+            )
             
-            # 构造符合 Gemini SDK 要求的图片部分
-            image_parts = [
-                {
-                    "mime_type": "image/jpeg",
-                    "data": downloaded_file
-                }
-            ]
-            
-            # 组合指令
-            prompt_parts = [
-                MARKETING_PROMPT, 
-                {"mime_type": "image/jpeg", "data": downloaded_file},
-                f"用户补充信息（极其重要，若与图片冲突以此为准）: {caption}" 
-            ]           
-            # --- 新增：积分检查 ---
-            profile = get_or_create_profile(message.from_user)
-            # 1. 检查会员是否有效
-            is_vip = False
-            if profile.get('subscription_expiry'):
-                from datetime import datetime, timezone
-                # 解析数据库存的时间字符串
-                try:
-                    expiry_date = datetime.fromisoformat(profile['subscription_expiry'].replace('Z', '+00:00'))
-                    if expiry_date > datetime.now(timezone.utc):
-                        is_vip = True
-                except Exception as e:
-                    print(f"日期解析出错: {e}")
-
-            # 2. 判定逻辑
-            if is_vip:
-                print(f"用户 {message.from_user.id} 是会员，免扣费识图。")
-                bot.send_chat_action(message.chat.id, 'typing') # 给个反馈提示
-            elif profile['credits'] < 10:
-                bot.reply_to(message, f"❌ 能量不足！\n当前余额：{profile['credits']} ⚡\n识图需消耗 10 ⚡，请回复“充值”发送截图或等待明日签到。")
-                return 
-            
-            print(f"用户 {message.from_user.id} 余额充足，准备识图...")
-
-            # 获取 AI 生成的高质量文案
-            response = model.generate_content(prompt_parts)
-            full_text = response.text
-
-            # 我们使用 splitlines 处理，过滤掉包含特定关键词的行
-            lines = full_text.splitlines()
-            clean_lines = [
-                line for line in lines 
-                if "【文案部分】" not in line and "【数据部分】" not in line
-            ]
-
-            # 重新组合成纯净的文案
-            display_text1 = "\n".join(clean_lines).strip()
-
-            # --- 核心提取逻辑 ---
-            item_title = "未知商品" # 默认值
-            price_val = "0"        # 默认值
-            
-            # --- 识图成功后：正式扣除 10 积分 ---
-            # --- 识图成功后：扣费判定 ---
-            if not is_vip:
-                new_balance = profile['credits'] - 10
-                supabase.table("profiles").update({"credits": new_balance}).eq("telegram_id", message.from_user.id).execute()
-                print(f"非会员积分已扣除，剩余：{new_balance}")
-            else:
-                print("会员用户，跳过扣费步骤。")
-            # ---------------------
-
+            bot.forward_message(ADMIN_ID, message.chat.id, message.message_id)
+            bot.send_message(ADMIN_ID, f"🔔 **收到充值申请**\n来自用户：`{user_id}`\n用户名：@{message.from_user.username}", 
+                            reply_markup=admin_markup, parse_mode="Markdown")
+            bot.reply_to(message, "📩 支付凭证已提交，请耐心等待管理员审核。")
+            return
+        # --- 识图流程优化 ---
+        print(f"收到照片分析请求，附言: {caption}")
+        
+        # 获取最高画质的照片
+        photo_file_id = message.photo[-1].file_id
+        
+        print("正在压缩并上传图片...")
+        # 2. 【执行前置】先压缩并上传，同时拿回压缩后的二进制数据供 AI 使用
+        bot.send_chat_action(message.chat.id, 'upload_photo')
+        image_url, compressed_data = upload_to_supabase(photo_file_id)
+        
+        if not image_url or not compressed_data:
+            bot.reply_to(message, "❌ 图片处理失败，请稍后再试。")
+            return
+        
+        # 构造符合 Gemini SDK 要求的图片部分
+        #image_parts = [
+        #    {
+        #        "mime_type": "image/jpeg",
+        #        "data": downloaded_file
+        #    }
+        #]
+        
+        # 组合指令
+        prompt_parts = [
+            MARKETING_PROMPT, 
+            {"mime_type": "image/jpeg", "data": compressed_data},
+            f"用户补充信息（极其重要，若与图片冲突以此为准）: {caption}" 
+        ]           
+        # --- 新增：积分检查 ---
+        profile = get_or_create_profile(message.from_user)
+        # 1. 检查会员是否有效
+        is_vip = False
+        if profile.get('subscription_expiry'):
+            from datetime import datetime, timezone
+            # 解析数据库存的时间字符串
             try:
-                # 1. 提取 AI 数据（逻辑同前）
-                for line in display_text1.split('\n'):
-                    if line.startswith("DATA:"):
-                        data_part = line.replace("DATA:", "").strip()
-                        item_title, price_val = data_part.split('|')
-                        break
-                display_text = display_text1.split("DATA:")[0].strip()
-
-                # 🌟 新增：异步上传图片（避免阻塞 AI 回复速度）
-                photo_file_id = message.photo[-1].file_id
-                image_url = upload_to_supabase(photo_file_id)
-
-                # 2. 插入数据库，状态设为 draft
-                res = supabase.table("items").insert({
-                    "name": item_title,
-                    "price": float(price_val),
-                    "description": display_text,
-                    "username": message.from_user.username,
-                    "status": "draft", # 关键：初始为草稿
-                    "telegram_id": message.from_user.id,
-                    "image_url": image_url # 🌟 存入图片直连
-                }).execute()
-                
-                item_id = res.data[0]['id'] # 获取这条记录的 ID
-
-                # 3. 创建 V1.2 交互按钮
-                markup = types.InlineKeyboardMarkup(row_width=2)
-                btn_confirm = types.InlineKeyboardButton("✅ 确认发布", callback_data=f"conf_{item_id}")
-                btn_edit_price = types.InlineKeyboardButton("💰 改价格", callback_data=f"editp_{item_id}")
-                btn_edit_desc = types.InlineKeyboardButton("📝 改描述", callback_data=f"editd_{item_id}") # 🌟 新增
-                btn_location = types.InlineKeyboardButton("📍 加位置", callback_data=f"loc_{item_id}")
-                btn_cancel = types.InlineKeyboardButton("❌ 撤回", callback_data=f"del_{item_id}")
-                # 建议排列方式：确认按钮独占一行，其他两两一排
-                markup.add(btn_confirm)
-                markup.add(btn_edit_price, btn_edit_desc)
-                markup.add(btn_location, btn_cancel)
-
-                # 1. 净化文案
-                raw_text = display_text # Gemini 生成的原始文案
-                safe_text = escape_markdown(raw_text)
-                
-                bot.reply_to(message, f"🤖 **AI 预览生成成功！**\n\n{safe_text}\n\n当前状态：⏳ 草稿（未上架）", reply_markup=markup, parse_mode="Markdown")
-                
+                expiry_date = datetime.fromisoformat(profile['subscription_expiry'].replace('Z', '+00:00'))
+                if expiry_date > datetime.now(timezone.utc):
+                    is_vip = True
             except Exception as e:
-                print(f"解析数据失败: {e}")
-                display_text = display_text1.split("DATA:")[0].strip()
+                print(f"日期解析出错: {e}")
 
+        # 2. 判定逻辑
+        if is_vip:
+            print(f"用户 {message.from_user.id} 是会员，免扣费识图。")
+            bot.send_chat_action(message.chat.id, 'typing') # 给个反馈提示
+        elif profile['credits'] < 10:
+            bot.reply_to(message, f"❌ 能量不足！\n当前余额：{profile['credits']} ⚡\n识图需消耗 10 ⚡，请回复“充值”发送截图或等待明日签到。")
+            return 
+        
+        print(f"用户 {message.from_user.id} 余额充足，准备识图...")
+
+        # 获取 AI 生成的高质量文案
+        response = model.generate_content(prompt_parts)
+        full_text = response.text
+
+        # 我们使用 splitlines 处理，过滤掉包含特定关键词的行
+        lines = full_text.splitlines()
+        clean_lines = [
+            line for line in lines 
+            if "【文案部分】" not in line and "【数据部分】" not in line
+        ]
+
+        # 重新组合成纯净的文案
+        display_text1 = "\n".join(clean_lines).strip()
+
+        # --- 核心提取逻辑 ---
+        item_title = "未知商品" # 默认值
+        price_val = "0"        # 默认值
+        
+        # --- 识图成功后：正式扣除 10 积分 ---
+        # --- 识图成功后：扣费判定 ---
+        if not is_vip:
+            new_balance = profile['credits'] - 10
+            supabase.table("profiles").update({"credits": new_balance}).eq("telegram_id", message.from_user.id).execute()
+            print(f"非会员积分已扣除，剩余：{new_balance}")
+        else:
+            print("会员用户，跳过扣费步骤。")
+        # ---------------------
+
+        try:
+            # 1. 提取 AI 数据（逻辑同前）
+            for line in display_text1.split('\n'):
+                if line.startswith("DATA:"):
+                    data_part = line.replace("DATA:", "").strip()
+                    item_title, price_val = data_part.split('|')
+                    break
+            display_text = display_text1.split("DATA:")[0].strip()
+
+            # 2. 插入数据库，状态设为 draft
+            res = supabase.table("items").insert({
+                "name": item_title,
+                "price": float(price_val),
+                "description": display_text,
+                "username": message.from_user.username,
+                "status": "draft", # 关键：初始为草稿
+                "telegram_id": message.from_user.id,
+                "image_url": image_url # 🌟 存入图片直连
+            }).execute()
             
-            print("照片分析完成并回复。")
+            item_id = res.data[0]['id'] # 获取这条记录的 ID
+
+            # 3. 创建 V1.2 交互按钮
+            markup = types.InlineKeyboardMarkup(row_width=2)
+            btn_confirm = types.InlineKeyboardButton("✅ 确认发布", callback_data=f"conf_{item_id}")
+            btn_edit_price = types.InlineKeyboardButton("💰 改价格", callback_data=f"editp_{item_id}")
+            btn_edit_desc = types.InlineKeyboardButton("📝 改描述", callback_data=f"editd_{item_id}") # 🌟 新增
+            btn_location = types.InlineKeyboardButton("📍 加位置", callback_data=f"loc_{item_id}")
+            btn_cancel = types.InlineKeyboardButton("❌ 撤回", callback_data=f"del_{item_id}")
+            # 建议排列方式：确认按钮独占一行，其他两两一排
+            markup.add(btn_confirm)
+            markup.add(btn_edit_price, btn_edit_desc)
+            markup.add(btn_location, btn_cancel)
+
+            # 1. 净化文案
+            raw_text = display_text # Gemini 生成的原始文案
+            safe_text = escape_markdown(raw_text)
+            
+            bot.reply_to(message, f"🤖 **AI 预览生成成功！**\n\n{safe_text}\n\n当前状态：⏳ 草稿（未上架）", reply_markup=markup, parse_mode="Markdown")
+            
+        except Exception as e:
+            print(f"解析数据失败: {e}")
+            display_text = display_text1.split("DATA:")[0].strip()
+
+        
+        print("照片分析完成并回复。")
     except Exception as e:
         print(f"Error: {e}")
         bot.reply_to(message, "宝子，AI 大脑卡壳了，请稍后再试～")
+
+# 0.4.3.6 处理用户智能分析
+@bot.message_handler(func=lambda m: True, content_types=['text', 'photo'])
+def handle_message(message):
+    if message.content_type == 'photo':
+        # 启动后台线程处理图片，实现“秒派发”
+        threading.Thread(target=process_photo_task, args=(message,)).start()
+        print(f"🚀 图片任务已派发 (Message ID: {message.message_id})")
 
 
 # print("🚀 华邻助手正式启动 (Gemini 2.5 Flash)...")
